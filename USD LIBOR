@@ -1,0 +1,165 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon May 22 13:31:08 2023
+
+@author: Rohit.Rao
+"""
+
+# -*- coding: utf-8 -*-
+"""
+Created on Mon May 22 12:05:59 2023
+
+@author: Rohit.Rao
+"""
+
+
+
+import QuantLib as ql
+import datetime as dt
+from datetime import datetime
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import QuantLib as ql
+
+
+
+# Define the deposit rates
+deposit_rates = [
+    
+    (0.0498300004005432, '3M'),
+    
+]
+
+
+df = pd.read_excel(r'path\SWAP_DATA.xlsx')
+df=df.iloc[:,1:3]
+
+# Define the swap rates
+swap_rates=df.values.tolist()
+
+#Creating futures
+futures_months = [3, 3, 3, 3,3,3]
+futures_prices = [94.755,94.72,94.69,95.045,95.415,95.88]
+convex_adj=[-0.00009,-0.00051,-0.00119,-0.00373,-0.00739,-0.01215]
+dat_=[ql.Date(19,ql.April,2023), ql.Date(17,ql.May,2023),ql.Date(21,ql.June,2023),ql.Date(20,ql.September,2023),ql.Date(20,ql.December,2023),ql.Date(20,ql.March,2024)]
+currency = ql.USDCurrency()
+
+dat_end=[ql.Date(19,ql.July,2023), ql.Date(16,ql.August,2023),ql.Date(20,ql.September,2023)
+      ,ql.Date(20,ql.December,2023),ql.Date(20,ql.March,2024),ql.Date(19,ql.June,2024)]
+
+
+
+convention = ql.ModifiedFollowing
+
+fixedFrequency = ql.Semiannual
+
+
+calendar = ql.UnitedStates(ql.UnitedStates.NYSE)
+# calendar = ql.TARGET()
+
+day_count = ql.Actual365Fixed()
+# day_count_term_structure  = ql.ActualActual(ql.ActualActual.ISDA)
+
+settlement_date = ql.Date(12, ql.April, 2023)
+
+fixingDays = 2
+settlementDays = 2
+
+today = calendar.advance(settlement_date, -ql.Period('2D'),ql.Following)
+
+ql.Settings.instance().evaluationDate = today
+
+
+
+USD_libor = ql.IborIndex(
+    'USD LIBOR', 
+    ql.Period('3M'), 
+    settlementDays, 
+    currency, 
+    calendar, 
+    ql.ModifiedFollowing, 
+    False, 
+    ql.Actual360()
+)
+
+
+
+helpers = []
+for rate, period in deposit_rates:
+    helpers.append(ql.DepositRateHelper(ql.QuoteHandle(ql.SimpleQuote(rate)),
+                                      ql.Period(period),
+                                      fixingDays,
+                                      calendar,
+                                      ql.ModifiedFollowing,
+                                      False,
+                                      ql.Actual360()))
+    
+
+
+
+
+
+
+for price, month,convexityAdjustment,dat,dat_end_ in zip(futures_prices, futures_months,convex_adj,dat_,dat_end):
+
+    start_date=dat
+    # settlement_date = calendar.advance(start_date, ql.Period('2D'))
+    day_count1=ql.Actual360()
+    t = day_count1.yearFraction(settlement_date,start_date)
+    d = calendar.advance(start_date, ql.Period('3M'))
+
+    T = day_count1.yearFraction(settlement_date,dat_end_ )
+    
+    
+    convexityAdjustment_h=ql.HullWhite.convexityBias(price,t, T, a=0.0000000001, sigma=0.01316)
+    
+    # print(convexityAdjustment_h)
+
+    # futuresHelper = ql.FuturesRateHelper(price,
+    #                                   dat,3,calendar,ql.ModifiedFollowing,
+    #                                   False, ql.Actual360(),
+    #                                   convexityAdjustment_h,ql.Futures.IMM)
+    futuresHelper=ql.FuturesRateHelper(price, dat, dat_end_, ql.Actual360(), 
+                                       convexityAdjustment_h, ql.Futures.IMM)
+    # dat = ql.IMM.nextDate(dat+1)
+    # print(ql.IMM.nextDate(dat-1))
+    
+    helpers.append(futuresHelper)
+    
+
+
+
+ 
+ 
+    
+ 
+
+for period, rate in swap_rates:
+    rate = ql.QuoteHandle(ql.SimpleQuote(rate))
+    tenor = ql.Period(period)
+    helpers.append( ql.SwapRateHelper(rate, tenor, calendar, fixedFrequency, 
+                                      convention, ql.Thirty360(ql.Thirty360.USA), USD_libor))
+
+
+
+    
+    
+    
+    
+discounting_curve = ql.PiecewiseLogLinearDiscount(settlement_date,helpers,day_count)
+
+# print(discounting_curve.nodes())
+dates, rates = zip(*discounting_curve.nodes())
+
+
+df = pd.DataFrame({'date': dates, 'Discount Factor': rates})
+
+
+
+aa =  [discounting_curve.zeroRate(i, day_count, ql.Continuous).rate() for i in dates]
+
+df['Zero Rate'] = aa
+df.to_clipboard()
+df
+
